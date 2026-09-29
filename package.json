@@ -1,0 +1,26 @@
+{
+  "name": "library-of-happy-moments",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Desktop shell for the synchrony moments Shiny app",
+  "main": "electron/main.js",
+  "scripts": {
+    "desktop": "electron .",
+    "stage:win": "node electron/stage.js",
+    "build:win": "npm run stage:win && electron-builder --win dir",
+    "bundle:win": "node electron/bundle-win.js",
+    "test:bundle": "node electron/smoke-test.js"
+  },
+  "build": {
+    "appId": "org.libraryofhappymoments.desktop",
+    "productName": "Library of Happy Moments",
+    "directories": { "output": "dist" },
+    "files": ["electron/main.js", "package.json"],
+    "extraResources": [{ "from": "build/bundle", "to": "bundle" }],
+    "win": { "target": "dir", "signAndEditExecutable": false }
+  },
+  "devDependencies": {
+    "electron": "^38.0.0",
+    "electron-builder": "^26.0.0"
+  }
+}

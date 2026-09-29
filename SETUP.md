@@ -1,0 +1,15 @@
+# Local development
+
+Install R (4.1+), `facereaderconverter` (tested against 0.3.2.1), and the R packages `shiny`, `bslib`, `zip`, `callr`, and `later`. The converter's own dependencies are installed with it. Install FFmpeg **and** FFprobe separately in the project-root `bin/` directories described in [bin/README.md](bin/README.md); the executables are not stored in Git. Their download URLs, hashes, and verification status are in [bin/SOURCES.md](bin/SOURCES.md). Do not distribute a desktop build until GPL/source and codec/patent obligations are reviewed and the Linux/macOS bundles have been tested on their target machines.
+
+Launch from the project root with `shiny::runApp('.')`. For the optional desktop shell, install Node.js and run `npm install` then `npm run desktop` from the same root. Electron uses the Rscript executable on PATH (or `RSCRIPT` environment variable), starts Shiny bound to `127.0.0.1`, and requires the R packages and platform media binaries to be installed separately.
+
+## Windows x64 bundle
+
+From a Windows terminal in the project root, install Node.js and R, plus the app's R packages listed above (and `readr` and `readxl`). Run `npm ci`, then `npm run bundle:win`. The script [electron/bundle-win.js](electron/bundle-win.js) stages the installed R and its package dependencies, builds the Electron desktop folder, runs the isolated R/Shiny startup smoke test, copies [run instructions](electron/RUN-BUNDLE.md) and the [source notice](electron/SOURCE-NOTICE.md) into the folder, and creates `dist/library-of-happy-moments-win-x64.zip`. Set `BUNDLE_RSCRIPT` to the intended `Rscript.exe` path if multiple R versions are installed. This builds from locally installed R/packages: use the same R and R package versions on each build machine for repeatable inputs (there is not yet an R dependency lockfile). Extract the **whole** ZIP on Windows x64 and run `win-unpacked/Library of Happy Moments.exe`; no R or Node.js installation is needed on the recipient machine. This is a portable folder, not a single-file EXE or installer.
+
+**Do not distribute the output yet.** The notice and existing GPL text are not, by themselves, proof of compliance. Review the corresponding FFmpeg source, all R/Electron/package licenses and notices, and codec/patent obligations documented in [bin/SOURCES.md](bin/SOURCES.md) before sharing.
+
+Upload one video (`mp4`, `mov`, `mkv`, `avi`) and exactly two detailed FaceReader exports (`txt`, `xlsx`) whose `Filename` metadata matches the video. Click Process video; sort the resulting clips by time or selection rank and navigate with the arrows. The download button creates a ZIP with clips and their manifest; media files live in session temporary storage and are removed on disconnect. For sensitive recordings, use only a trusted local machine; this scaffold has no authentication and should not be exposed as a public server.
+
+Run focused helper tests using `testthat::test_file('tests/testthat/test-0100-app-helpers.R')`. Larger videos may require raising `shiny.maxRequestSize` in `app.R`.

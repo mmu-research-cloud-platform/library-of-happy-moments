@@ -47,3 +47,28 @@ po/*~
 
 # RStudio Connect folder
 rsconnect/
+# add to .gitignore
+**/junk/**
+/.quarto/
+**/*.quarto_ipynb
+**/.posit/**
+.posit/assistant/plans/
+.cache/
+**/.cache/
+AGENTS.md
+**/_snaps/
+NUL
+nul
+node_modules/
+build/
+dist/
+
+# Downloaded media tools are installed locally, not committed.
+/bin/windows-x64/ffmpeg.exe
+/bin/windows-x64/ffprobe.exe
+/bin/linux-x64/ffmpeg
+/bin/linux-x64/ffprobe
+/bin/macos-x64/ffmpeg
+/bin/macos-x64/ffprobe
+/bin/macos-arm64/ffmpeg
+/bin/macos-arm64/ffprobe

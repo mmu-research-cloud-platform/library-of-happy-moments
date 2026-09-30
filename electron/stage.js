@@ -38,7 +38,6 @@ try {
   fs.cpSync(path.join(root, 'R'), path.join(appDir, 'R'), { recursive: true });
   fs.mkdirSync(path.join(appDir, 'bin'));
   fs.cpSync(path.join(root, 'bin', 'windows-x64'), path.join(appDir, 'bin', 'windows-x64'), { recursive: true });
-  fs.copyFileSync(path.join(root, 'bin', 'SOURCES.md'), path.join(appDir, 'bin', 'SOURCES.md'));
   fs.copyFileSync(path.join(root, 'LICENSE'), path.join(appDir, 'LICENSE'));
   console.log(`Staged R and ${packages.length} packages in ${stage}`);
 } finally {

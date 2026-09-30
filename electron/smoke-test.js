@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const net = require('node:net');
 const path = require('node:path');
 
-const bundle = path.resolve(__dirname, '..', 'dist', 'win-unpacked', 'resources', 'bundle');
+const bundle = path.resolve(process.env.BUNDLE_DIR || path.join(__dirname, '..', 'dist', 'win-unpacked'), 'resources', 'bundle');
 const appRoot = path.join(bundle, 'app');
 const rscript = path.join(bundle, 'runtime', 'bin', 'Rscript.exe');
 assert.ok(fs.existsSync(rscript), 'Bundled Rscript is missing');

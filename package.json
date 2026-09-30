@@ -6,9 +6,12 @@
   "main": "electron/main.js",
   "scripts": {
     "desktop": "electron .",
+    "download:media:win": "node electron/media-release.js download",
+    "test:media": "node --test electron/media-release.test.js electron/release-audit.test.js electron/release-win.test.js",
     "stage:win": "node electron/stage.js",
     "build:win": "npm run stage:win && electron-builder --win dir",
     "bundle:win": "node electron/bundle-win.js",
+    "release:win": "node electron/release-win.js",
     "test:bundle": "node electron/smoke-test.js"
   },
   "build": {

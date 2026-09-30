@@ -17,6 +17,7 @@ function run(program, args) {
 
 // The R installation and packages are local inputs; record their versions for repeatable builds.
 fs.rmSync(archive, { force: true });
+run(process.execPath, [path.join(__dirname, 'media-release.js'), 'download']);
 run(process.execPath, [path.join(__dirname, 'stage.js')]);
 run(process.execPath, [require.resolve('electron-builder/cli.js'), '--win', 'dir']);
 run(process.execPath, [path.join(__dirname, 'smoke-test.js')]);
@@ -25,14 +26,12 @@ for (const name of ['Library of Happy Moments.exe', 'resources/bundle/runtime/bi
   'resources/bundle/app/bin/windows-x64/LICENSE.txt']) {
   if (!fs.existsSync(path.join(folder, name))) throw new Error(`Incomplete build: ${name}`);
 }
-for (const [source, target] of [
-  ['RUN-BUNDLE.md', 'RUN-BUNDLE.md'],
-  ['SOURCE-NOTICE.md', 'SOURCE-NOTICE.md']
-]) {
-  fs.copyFileSync(path.join(__dirname, source), path.join(folder, target));
-}
+fs.copyFileSync(path.join(__dirname, 'RUN-BUNDLE.md'), path.join(folder, 'RUN-BUNDLE.md'));
+run(process.execPath, [path.join(__dirname, 'media-release.js'), 'notice', folder]);
+run(process.execPath, [path.join(__dirname, 'release-audit.js'), 'audit', folder]);
 
-// Windows tar uses ZIP when the output name ends in .zip.
-run('tar.exe', ['-a', '-cf', archive, '-C', dist, 'win-unpacked']);
-if (!fs.statSync(archive).size) throw new Error('The generated ZIP is empty.');
-console.log(`Bundle ready: ${archive}`);
+if (process.env.RELEASE_REVIEW_FILE && process.env.MEDIA_ASSET_SHA256) {
+  run(process.execPath, [path.join(__dirname, 'release-win.js')]);
+} else {
+  console.log('Development folder ready. ZIP withheld: run npm run release:win after review.');
+}

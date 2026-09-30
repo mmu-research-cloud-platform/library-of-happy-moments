@@ -1,5 +1,7 @@
 # FFmpeg and FFprobe binary provenance
 
+This is a historical record of the 2026-09-28 downloads, **not** the provenance of a newly built Windows ZIP. The Windows bundler downloads the current upstream asset and embeds its verified release metadata and shipped-file hashes in `MEDIA-PROVENANCE.json` and `SOURCE-NOTICE.md` inside that ZIP. Consult those files for that particular build; the `latest` links and hashes below can become stale.
+
 Downloaded 2026-09-28. Each target contains **only** `ffmpeg` and `ffprobe` in the directory expected by `locate_media_tools()`; original archives are kept locally in `bin/.downloads/` (git-ignored). These are third-party builds, **not** part of this project's MIT license. `libx264` requires GPL-enabled FFmpeg; distributing this software with the bundled binaries requires appropriate GPL source/notice compliance and a review of relevant codec patent obligations. See https://ffmpeg.org/legal.html. Do not release the desktop application without that review. `ffbinaries` repackages upstream evermeet.cx's macOS x64 binaries. The source/version link for the macOS arm64 binaries is from the release notes, not an independent source audit.
 
 | Target | Archive URL (versioned filename; BtbN `latest` tag is mutable) | Archive SHA-256 | Hash basis |

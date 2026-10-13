@@ -273,6 +273,58 @@ parse_emotions <- function(value, allow_neutral = FALSE) {
   unique(value)
 }
 
+participant_label <- function(x) {
+  tolower(sub(":$", "", trimws(x)))
+}
+
+# Metadata lines are "Participant Name<TAB>value"; detailed exports place
+# "Participant Name" as a table column header, with values in the next row.
+participant_from_txt <- function(lines) {
+  split_cells <- function(line) strsplit(line, "\t", fixed = TRUE)[[1L]]
+  has_label <- function(line) {
+    any(participant_label(split_cells(line)) == "participant name")
+  }
+  header <- Position(has_label, lines)
+  if (is.null(header)) {
+    return(NA_character_)
+  }
+  cells <- split_cells(lines[[header]])
+  if (
+    length(cells) == 2L && participant_label(cells[[1L]]) == "participant name"
+  ) {
+    return(trimws(cells[[2L]]))
+  }
+  col <- which(participant_label(cells) == "participant name")[1L]
+  if (header == length(lines)) {
+    return(NA_character_)
+  }
+  values <- split_cells(lines[[header + 1L]])
+  if (col > length(values)) NA_character_ else trimws(values[[col]])
+}
+
+participant_from_xlsx <- function(path) {
+  preview <- suppressMessages(readxl::read_excel(
+    path,
+    n_max = 200L,
+    col_names = FALSE
+  ))
+  grid <- unname(as.matrix(as.data.frame(
+    lapply(preview, as.character),
+    stringsAsFactors = FALSE
+  )))
+  hit <- which(participant_label(grid) == "participant name", arr.ind = TRUE)
+  if (nrow(hit) == 0L) {
+    return(NA_character_)
+  }
+  row <- hit[[1L, 1L]]
+  col <- hit[[1L, 2L]]
+  filled <- which(!is.na(grid[row, ]) & nzchar(trimws(grid[row, ])))
+  if (length(filled) == 2L) {
+    return(if (col < ncol(grid)) trimws(grid[row, col + 1L]) else NA_character_)
+  }
+  if (row == nrow(grid)) NA_character_ else trimws(grid[row + 1L, col])
+}
+
 participant_name <- function(upload) {
   fallback <- tools::file_path_sans_ext(upload$name[[1L]])
   extension <- tolower(tools::file_ext(upload$name[[1L]]))
@@ -281,23 +333,10 @@ participant_name <- function(upload) {
       staged <- tempfile(fileext = paste0(".", extension))
       on.exit(unlink(staged), add = TRUE)
       file.copy(upload$datapath[[1L]], staged)
-      pattern <- "^[[:space:]]*Participant Name[[:space:]]*[:\\t]*"
       if (extension == "txt") {
-        lines <- readr::read_lines(staged, n_max = 200L)
-        line <- lines[grepl(pattern, lines, ignore.case = TRUE)][1L]
-        trimws(sub(pattern, "", line, ignore.case = TRUE))
+        participant_from_txt(readr::read_lines(staged, n_max = 200L))
       } else {
-        preview <- suppressMessages(readxl::read_excel(
-          staged,
-          n_max = 200L,
-          col_names = FALSE
-        ))
-        row <- which(grepl(
-          "^[[:space:]]*Participant Name",
-          as.character(preview[[1L]]),
-          ignore.case = TRUE
-        ))[1L]
-        trimws(as.character(preview[[2L]][[row]]))
+        participant_from_xlsx(staged)
       }
     },
     error = function(e) NA_character_

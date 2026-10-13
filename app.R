@@ -376,7 +376,7 @@ server <- function(input, output, session) {
     reset_clip_export()
     reset_synchrony()
     reset_episode()
-    updateSelectInput(session, "clip_order", selected = "time")
+    updateSelectInput(session, "clip_order", selected = "rank")
   })
   output$processing_progress <- renderUI({
     if (!state$busy) {

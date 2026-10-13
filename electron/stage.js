@@ -35,6 +35,7 @@ try {
   const appDir = path.join(stage, 'app');
   fs.mkdirSync(appDir);
   fs.copyFileSync(path.join(root, 'app.R'), path.join(appDir, 'app.R'));
+  fs.copyFileSync(path.join(root, 'instructions.qmd'), path.join(appDir, 'instructions.qmd'));
   fs.cpSync(path.join(root, 'R'), path.join(appDir, 'R'), { recursive: true });
   fs.mkdirSync(path.join(appDir, 'bin'));
   fs.cpSync(path.join(root, 'bin', 'windows-x64'), path.join(appDir, 'bin', 'windows-x64'), { recursive: true });

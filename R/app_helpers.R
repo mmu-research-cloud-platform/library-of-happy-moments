@@ -273,6 +273,51 @@ parse_emotions <- function(value, allow_neutral = FALSE) {
   unique(value)
 }
 
+participant_name <- function(upload) {
+  fallback <- tools::file_path_sans_ext(upload$name[[1L]])
+  extension <- tolower(tools::file_ext(upload$name[[1L]]))
+  name <- tryCatch(
+    {
+      staged <- tempfile(fileext = paste0(".", extension))
+      on.exit(unlink(staged), add = TRUE)
+      file.copy(upload$datapath[[1L]], staged)
+      pattern <- "^[[:space:]]*Participant Name[[:space:]]*[:\\t]*"
+      if (extension == "txt") {
+        lines <- readr::read_lines(staged, n_max = 200L)
+        line <- lines[grepl(pattern, lines, ignore.case = TRUE)][1L]
+        trimws(sub(pattern, "", line, ignore.case = TRUE))
+      } else {
+        preview <- suppressMessages(readxl::read_excel(
+          staged,
+          n_max = 200L,
+          col_names = FALSE
+        ))
+        row <- which(grepl(
+          "^[[:space:]]*Participant Name",
+          as.character(preview[[1L]]),
+          ignore.case = TRUE
+        ))[1L]
+        trimws(as.character(preview[[2L]][[row]]))
+      }
+    },
+    error = function(e) NA_character_
+  )
+  if (length(name) != 1L || is.na(name) || !nzchar(name)) fallback else name
+}
+
+subject_choices <- function(first = NULL, second = NULL) {
+  choices <- character()
+  add <- function(label, name) {
+    if (!is.null(name)) {
+      value <- paste0("^", gsub("([][{}()+*^$|\\\\?.])", "\\\\\\1", name), "$")
+      choices[[sprintf("%s: %s", label, name)]] <<- value
+    }
+  }
+  add("Participant 1", first)
+  add("Participant 2", second)
+  c(choices, both = "both")
+}
+
 pipeline_options <- function(input) {
   numeric_options <- c(
     "T_up",
@@ -314,9 +359,9 @@ pipeline_options <- function(input) {
     stop("Select a supported constraint method.", call. = FALSE)
   }
   list(
-    subject_from_filename = input$subject_from_filename,
-    subject_map = parse_subject_map(input$subject_map),
-    verbose = input$verbose,
+    subject_from_filename = TRUE,
+    subject_map = NULL,
+    verbose = FALSE,
     T_up = input$T_up,
     T_down = input$T_down,
     delta = input$delta,

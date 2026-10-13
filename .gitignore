@@ -73,3 +73,6 @@ dist/
 /bin/macos-arm64/ffmpeg
 /bin/macos-arm64/ffprobe
 
+
+# Local release review record
+/release-review.json

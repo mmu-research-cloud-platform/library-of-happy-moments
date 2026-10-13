@@ -73,3 +73,12 @@ dist/
 /bin/macos-arm64/ffmpeg
 /bin/macos-arm64/ffprobe
 
+
+# Local release review record
+/release-review.json
+
+# Rendered Quarto outputs for SETUP.md and instructions.qmd
+/SETUP.html
+/SETUP_files/
+/instructions.html
+/instructions_files/

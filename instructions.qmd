@@ -1,0 +1,51 @@
+## How to create clips
+
+1. Upload one video (MP4, MOV, MKV, or AVI).
+2. Upload two distinct, detailed FaceReader exports (TXT or XLSX), one for each participant. Their **Filename** metadata must match the video, and both exports must use the same frame rate.
+3. Optionally adjust **Advanced options** in the sidebar.
+4. When all inputs pass validation, select **Process video**. Review clips on the Clips tab, then download the clips ZIP.
+5. Clips can be ordered by rank or by time. The default is rank, which is the order of synchrony strength. Time orders clips by their start time in the video.
+
+Clearing inputs removes uploads and previously generated clips. **Reset all inputs** also restores default settings; each advanced panel has its own reset button.
+
+## Advanced options reference
+
+These settings control episode detection, synchrony matching, and clip selection. The defaults are suitable for a first run; adjust them when your study calls for it.
+
+### Clip export
+
+**Number of clips** exports the highest-ranked intervals after emotion and subject selection. Set to `0` to export every episode.
+
+**Buffers before and after** add the requested number of seconds on either side of each selected interval. The exported segment is clipped to the source video boundaries.
+
+**Emotions** keeps only the selected emotions. Leave the selection empty to include all available emotions. Neutral is excluded from synchrony matching, but may be included when selecting individual episodes.
+
+**Optimised subject**: choose `both` to rank shared synchronies by the combined emotion value of both participants, or choose Participant 1 or Participant 2 (named from the uploaded exports’ metadata, falling back to the filename) to rank clips using that participant’s emotion value.
+
+**Only synchronies**: when a single participant is chosen, select shared intervals involving that participant. Clear this option to select that participant’s individual emotion episodes instead. It has no effect when Optimised subject is `both`.
+
+### Synchrony selection
+
+**Time limit** sets a comparison window in seconds from the start of each detected episode. It affects strict and loose constraints; episode uses the full episode span.
+
+**Constraint method**:
+
+- **Strict** ends the comparison at the earlier of the episode end or time limit.
+- **Episode** uses the episode’s full end.
+- **Loose** extends to the later of those two endpoints.
+
+**Missing threshold** is the minimum proportion of non-missing frames from the comparison participant needed to keep an episode in the synchrony calculation. It ranges from `0` (no minimum) to `1` (all frames present).
+
+### Episode detection
+
+**Entry and exit thresholds**: the entry threshold is the FaceReader emotion value required to enter an episode; the exit threshold is the value below which it ends. Values are probabilities, and the exit threshold must not exceed the entry threshold.
+
+**Delta threshold and delta window** define a minimum increase in emotion value over the chosen time window for the package’s delta/reaction signal. These settings do not set episode boundaries.
+
+**Minimum duration** drops detected episodes shorter than this duration in seconds.
+
+**Consecutive missing frames** sets the maximum run of missing emotion frames tolerated while an episode is active before the episode is ended.
+
+**Cores** controls parallel processing for episode detection and clip encoding. `0` lets the package choose its default worker count; `1` runs clip encoding sequentially.
+
+See the [FaceReader Converter documentation](https://github.com/mmu-research-cloud-platform/facereaderconverter) for the underlying pipeline details.

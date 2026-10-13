@@ -69,7 +69,18 @@ test_that("0116 Process video requires two matching detailed exports", {
       upload(second),
       ffprobe
     ),
-    FALSE
+    TRUE
+  )
+  expect_gt(
+    length(
+      upload_validation(
+        upload(video_path, "wrong.mp4"),
+        upload(first),
+        upload(second),
+        ffprobe
+      )$warnings
+    ),
+    0L
   )
   expect_identical(
     uploads_ready(video, upload(first), upload(second, "bad.csv"), ffprobe),
@@ -125,5 +136,28 @@ test_that("0117 TXT detailed exports pass and state exports fail silently", {
       locate_media_tools(app_path)[["ffprobe"]]
     ),
     FALSE
+  )
+})
+
+test_that("0118 video filename mismatches are confirmable warnings", {
+  skip_if(!nzchar(Sys.getenv("TEST_DATA")))
+  first <- fixture(
+    "100024_child_Analysis 1_video_20260907_195450_detailed.xlsx"
+  )
+  second <- fixture("100024_mum_Analysis 1_video_20260907_195448_detailed.xlsx")
+  video_path <- fixture("ID100024_side_by_side.mp4")
+  skip_if(!all(file.exists(c(first, second, video_path))))
+  validation <- upload_validation(
+    upload(video_path, "other-video.mp4"),
+    upload(first),
+    upload(second),
+    locate_media_tools(app_path)[["ffprobe"]]
+  )
+  expect_null(validation$error)
+  expect_gt(length(validation$warnings), 0L)
+  expect_match(
+    paste(validation$warnings, collapse = " "),
+    "metadata",
+    ignore.case = TRUE
   )
 })

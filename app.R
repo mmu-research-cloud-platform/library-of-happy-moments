@@ -47,6 +47,9 @@ ui <- page_sidebar(
         Shiny.setInputValue(id, null, {priority: 'event'});
       });
     });
+    Shiny.addCustomMessageHandler('confirm-metadata-process', function(value) {
+      Shiny.setInputValue('process', value + 1, {priority: 'event'});
+    });
   });"
   ))),
   sidebar = sidebar(
@@ -254,7 +257,17 @@ server <- function(input, output, session) {
   run_root <- NULL
   run_id <- 0L
   pending_cancel <- NULL
+  metadata_confirmed <- reactiveVal(FALSE)
+  notified_upload_warnings <- character()
   diagnostics <- FALSE
+  observeEvent(
+    list(input$video, input$first, input$second),
+    {
+      metadata_confirmed(FALSE)
+      notified_upload_warnings <<- character()
+    },
+    ignoreInit = TRUE
+  )
   session$onSessionEnded(function() {
     if (!is.null(worker) && worker$is_alive()) {
       worker$kill_tree()
@@ -267,31 +280,59 @@ server <- function(input, output, session) {
     unlink(workspace, recursive = TRUE, force = TRUE)
   })
   output$status <- renderText(state$status)
-  ready <- reactive(uploads_ready(
+  ffprobe <- if (inherits(media_tools, "error")) {
+    media_tools
+  } else {
+    media_tools[["ffprobe"]]
+  }
+  upload_validation_result <- reactive(upload_validation(
     input$video,
     input$first,
     input$second,
-    if (inherits(media_tools, "error")) {
-      media_tools
-    } else {
-      media_tools[["ffprobe"]]
-    }
+    ffprobe
   ))
-  inputs_ready <- reactive({
-    ready() &&
-      isTRUE(tryCatch(
-        {
-          pipeline_options(input)
-          TRUE
-        },
-        error = function(error) FALSE
-      ))
+  upload_error <- reactive(upload_validation_result()$error)
+  ready <- reactive(is.null(upload_error()))
+  option_error <- reactive(tryCatch(
+    {
+      if (!ready()) {
+        return(NULL)
+      }
+      pipeline_options(input)
+      NULL
+    },
+    error = identity
+  ))
+  readiness_error <- reactive({
+    if (!is.null(upload_error())) {
+      return(upload_error())
+    }
+    option_error()
   })
+  inputs_ready <- reactive(is.null(readiness_error()))
   observe({
+    is_ready <- inputs_ready()
     session$sendCustomMessage(
       "process-readiness",
-      list(ready = inputs_ready() && !state$busy, busy = state$busy)
+      list(ready = is_ready && !state$busy, busy = state$busy)
     )
+  })
+  observeEvent(readiness_error(), {
+    if (!state$busy) {
+      error <- readiness_error()
+      has_upload <- !is.null(input$video) ||
+        !is.null(input$first) ||
+        !is.null(input$second)
+      if (!is.null(option_error())) {
+        state$status <- conditionMessage(option_error())
+      } else if (!is.null(error) && has_upload) {
+        state$status <- conditionMessage(error)
+      } else if (inherits(media_tools, "error") && !has_upload) {
+        state$status <- conditionMessage(media_tools)
+      } else if (is.null(error) && has_upload) {
+        state$status <- "Inputs validated. Ready to process."
+      }
+    }
   })
 
   clear_inputs <- function() {
@@ -308,10 +349,13 @@ server <- function(input, output, session) {
       run_root <<- NULL
     }
     state$status <- "Upload a video and two detailed FaceReader files."
+    metadata_confirmed(FALSE)
+    notified_upload_warnings <<- character()
   }
   observeEvent(input$clear_inputs, {
     if (!state$busy) {
       clear_inputs()
+      notified_upload_warnings <<- character()
     }
   })
 
@@ -435,8 +479,26 @@ server <- function(input, output, session) {
       }
       return()
     }
+    upload_warnings <- isolate(upload_validation_result()$warnings)
+    unseen_warnings <- setdiff(upload_warnings, notified_upload_warnings)
+    if (length(unseen_warnings)) {
+      showNotification(
+        paste(unseen_warnings, collapse = " "),
+        type = "warning",
+        duration = NULL
+      )
+      notified_upload_warnings <<- union(
+        notified_upload_warnings,
+        unseen_warnings
+      )
+    }
     if (!length(result$results) || !nrow(result$results[[1L]]$clip_manifest)) {
       state$status <- "Processing completed; no clips matched the selected options."
+      showNotification(
+        "No clips were generated. There may be no synchronies in the exports, or the selected options may exclude all matches.",
+        type = "warning",
+        duration = NULL
+      )
       if (!is.null(run_root)) {
         unlink(run_root, recursive = TRUE, force = TRUE)
         run_root <<- NULL
@@ -552,6 +614,37 @@ server <- function(input, output, session) {
     if (state$busy || !inputs_ready()) {
       return()
     }
+    upload_warnings <- upload_validation_result()$warnings
+    new_warnings <- setdiff(upload_warnings, notified_upload_warnings)
+    if (length(new_warnings)) {
+      showNotification(
+        paste(new_warnings, collapse = " "),
+        type = "warning",
+        duration = NULL
+      )
+      notified_upload_warnings <<- union(notified_upload_warnings, new_warnings)
+    }
+    if (length(upload_warnings) && !metadata_confirmed()) {
+      showModal(modalDialog(
+        title = "Metadata mismatch",
+        tagList(
+          p("The selected files contain metadata mismatches:"),
+          tags$ul(lapply(upload_warnings, tags$li)),
+          p("Continue processing anyway? Results may be inaccurate.")
+        ),
+        footer = tagList(
+          actionButton("cancel_metadata", "Go back"),
+          actionButton(
+            "confirm_metadata",
+            "Continue anyway",
+            class = "btn-warning"
+          )
+        ),
+        easyClose = FALSE
+      ))
+      return()
+    }
+    metadata_confirmed(FALSE)
     run_id <<- run_id + 1L
     pending_cancel <<- NULL
     expected_run_id <- run_id
@@ -619,6 +712,16 @@ server <- function(input, output, session) {
         finish_processing(error = error)
       }
     )
+  })
+
+  observeEvent(input$confirm_metadata, {
+    removeModal()
+    metadata_confirmed(TRUE)
+    session$sendCustomMessage("confirm-metadata-process", input$process)
+  })
+  observeEvent(input$cancel_metadata, {
+    removeModal()
+    metadata_confirmed(FALSE)
   })
 
   clips <- reactive(ordered_clips(state$manifest, input$clip_order))

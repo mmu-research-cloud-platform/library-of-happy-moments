@@ -15,14 +15,38 @@ test_that("0125 successful worker completion is safe outside a reactive consumer
     on.exit(unlink(clip_dir, recursive = TRUE), add = TRUE)
     manifest <- data.frame(clip_filename = "clip.mp4")
     state$busy <- TRUE
-    finish_processing(result = list(results = list(list(
-      clip_manifest = manifest,
-      clip_output = clip_dir
-    ))))
+    finish_processing(
+      result = list(
+        results = list(list(
+          clip_manifest = manifest,
+          clip_output = clip_dir
+        ))
+      )
+    )
     expect_false(state$busy)
     expect_identical(state$manifest, manifest)
     expect_identical(state$clip_dir, clip_dir)
     expect_match(output$status, "Generated 1 clips", fixed = TRUE)
     expect_match(output$download_control$html, 'id="download"', fixed = TRUE)
+  })
+})
+
+test_that("0126 empty worker completion reports no generated synchronies", {
+  shiny::testServer(app_environment$server, {
+    state$busy <- TRUE
+    run_root <- tempfile("empty-run-")
+    dir.create(run_root)
+    assign("run_root", run_root, envir = environment(finish_processing))
+    finish_processing(
+      result = list(
+        results = list(list(
+          clip_manifest = data.frame(),
+          clip_output = tempfile("empty-clips-")
+        ))
+      )
+    )
+    expect_match(output$status, "no clips matched", fixed = TRUE)
+    expect_false(state$busy)
+    expect_false(dir.exists(run_root))
   })
 })

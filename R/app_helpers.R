@@ -47,19 +47,6 @@ validate_detailed_export <- function(upload, video) {
   if (!identical(metadata$type, "detailed")) {
     stop("FaceReader export must be a detailed analysis.", call. = FALSE)
   }
-  video_key <- function(value) {
-    tolower(tools::file_path_sans_ext(basename(gsub("\\\\", "/", value))))
-  }
-  if (
-    is.na(metadata$video_filename) ||
-      !nzchar(metadata$video_filename) ||
-      !identical(
-        video_key(metadata$video_filename),
-        video_key(video$name[[1L]])
-      )
-  ) {
-    stop("FaceReader Filename metadata must match the video.", call. = FALSE)
-  }
   if (
     length(metadata$fps) != 1L ||
       !is.finite(metadata$fps) ||
@@ -95,20 +82,55 @@ validate_detailed_export <- function(upload, video) {
   invisible(metadata)
 }
 
-uploads_ready <- function(video, first, second, ffprobe) {
-  isTRUE(tryCatch(
+upload_validation <- function(video, first, second, ffprobe) {
+  tryCatch(
     {
+      warnings <- character()
+      video_key <- function(value) {
+        tolower(tools::file_path_sans_ext(basename(gsub("\\\\", "/", value))))
+      }
       validate_upload(video, video_extensions, "video")
       first_metadata <- validate_detailed_export(first, video)
       second_metadata <- validate_detailed_export(second, video)
+      for (entry in list(
+        list(upload = first, metadata = first_metadata),
+        list(upload = second, metadata = second_metadata)
+      )) {
+        upload <- entry$upload
+        metadata <- entry$metadata
+        if (
+          length(metadata$video_filename) != 1L ||
+            is.na(metadata$video_filename) ||
+            !nzchar(metadata$video_filename) ||
+            !identical(
+              video_key(metadata$video_filename),
+              video_key(video$name[[1L]])
+            )
+        ) {
+          warnings <- c(
+            warnings,
+            sprintf(
+              "%s metadata names '%s', which does not match the uploaded video '%s'.",
+              upload$name[[1L]],
+              metadata$video_filename,
+              video$name[[1L]]
+            )
+          )
+        }
+      }
       if (!identical(first_metadata$fps, second_metadata$fps)) {
-        stop("FaceReader exports must have the same frame rate.", call. = FALSE)
+        warnings <- c(
+          warnings,
+          sprintf(
+            "The FaceReader exports use different frame rates (%s and %s).",
+            first_metadata$fps,
+            second_metadata$fps
+          )
+        )
       }
       names <- vapply(
         list(video, first, second),
-        function(upload) {
-          safe_upload_name(upload$name[[1L]])
-        },
+        function(upload) safe_upload_name(upload$name[[1L]]),
         character(1)
       )
       if (any(!nzchar(names)) || anyDuplicated(tolower(names))) {
@@ -139,10 +161,20 @@ uploads_ready <- function(video, first, second, ffprobe) {
       if (!is.null(attr(probe, "status")) || !"codec_type=video" %in% probe) {
         stop("The uploaded video cannot be read.", call. = FALSE)
       }
-      TRUE
+      list(error = NULL, warnings = unique(warnings))
     },
-    error = function(error) FALSE
-  ))
+    error = function(error) {
+      list(error = error, warnings = character())
+    }
+  )
+}
+
+upload_readiness_error <- function(video, first, second, ffprobe) {
+  upload_validation(video, first, second, ffprobe)$error
+}
+
+uploads_ready <- function(video, first, second, ffprobe) {
+  is.null(upload_readiness_error(video, first, second, ffprobe))
 }
 
 safe_upload_name <- function(name) {

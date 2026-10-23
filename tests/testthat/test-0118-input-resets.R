@@ -15,7 +15,6 @@ test_that("0118 instructions and scoped reset controls appear", {
     "clear_inputs",
     "reset_advanced",
     "reset_clip_export",
-    "reset_matching",
     "reset_synchrony",
     "reset_episode"
   )) {
@@ -69,8 +68,6 @@ test_that("0121 panel and overall reset handlers accept changed controls", {
       only_synchronies = FALSE,
       buffer_before = 9,
       buffer_after = 8,
-      subject_from_filename = FALSE,
-      verbose = TRUE,
       time_limit = 6,
       constraint_method = "strict",
       missing_threshold = 0.5,
@@ -83,7 +80,6 @@ test_that("0121 panel and overall reset handlers accept changed controls", {
       cores = 2
     )
     expect_silent(session$setInputs(reset_clip_export = 1))
-    expect_silent(session$setInputs(reset_matching = 1))
     expect_silent(session$setInputs(reset_synchrony = 1))
     expect_silent(session$setInputs(reset_episode = 1))
     state$manifest <- data.frame(clip_filename = "old.mp4")

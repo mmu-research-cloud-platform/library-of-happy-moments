@@ -73,6 +73,7 @@ test('audit inventories staged components and rejects changed media', (t) => {
   write('resources/bundle/library/facereaderconverter/DESCRIPTION', 'Version: 0.3.2.2\nLicense: MIT\n');
   write('resources/bundle/app/LICENSE', 'MIT');
   write('resources/bundle/app/app.R', 'source');
+  write('resources/bundle/app/instructions.qmd', 'instructions');
   write('resources/bundle/app/R/helper.R', 'helper');
   write('LICENSE.electron.txt', 'electron');
   write('LICENSES.chromium.html', 'chromium');
@@ -86,6 +87,7 @@ test('audit inventories staged components and rejects changed media', (t) => {
   const inventory = auditBundle(dir);
   assert.equal(inventory.rVersion, '4.6.1');
   assert.equal(inventory.packages.length, 2);
+  assert.ok(inventory.appSourceHashes['instructions.qmd']);
   assert.deepEqual(auditBundle(dir), inventory);
   fs.writeFileSync(mediaPath, 'tampered');
   assert.throws(() => auditBundle(dir), /Media hash mismatch/);

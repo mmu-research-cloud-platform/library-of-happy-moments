@@ -38,9 +38,8 @@ ui <- page_sidebar(
       $('#clear_inputs, [id^=reset_]').prop('disabled', status.busy);
     });
     Shiny.addCustomMessageHandler('clear-upload-inputs', function(ids) {
-      if (ids !== 'subject_map') $('#process').prop('disabled', true);
-      (ids === 'subject_map' ? ['subject_map'] :
-        ['video', 'first', 'second', 'subject_map']).forEach(function(id) {
+      $('#process').prop('disabled', true);
+      ['video', 'first', 'second'].forEach(function(id) {
         var input = $('#' + id);
         input.val('');
         input.closest('.input-group').find('input[type=text]').val('');
@@ -93,19 +92,6 @@ ui <- page_sidebar(
           accordion_panel(
             "Clip export",
             numericInput("n", "Number of clips (0 = all)", 10, min = 0),
-            selectizeInput(
-              "emotion",
-              "Emotions (none = all)",
-              choices = face_reader_emotions,
-              selected = "happy",
-              multiple = TRUE
-            ),
-            textInput(
-              "optimised_subject",
-              "Optimised subject (both or regex)",
-              "both"
-            ),
-            checkboxInput("only_synchronies", "Only synchronies", TRUE),
             numericInput(
               "buffer_before",
               "Buffer before (seconds)",
@@ -113,26 +99,21 @@ ui <- page_sidebar(
               min = 0
             ),
             numericInput("buffer_after", "Buffer after (seconds)", 3, min = 0),
+            selectizeInput(
+              "emotion",
+              "Emotions (none = all)",
+              choices = face_reader_emotions,
+              selected = "happy",
+              multiple = TRUE
+            ),
+            selectInput(
+              "optimised_subject",
+              "Optimised subject",
+              choices = subject_choices(),
+              selected = "both"
+            ),
+            checkboxInput("only_synchronies", "Only synchronies", TRUE),
             actionButton("reset_clip_export", "Reset clip export")
-          ),
-          accordion_panel(
-            "Matching and diagnostics",
-            checkboxInput(
-              "subject_from_filename",
-              "Use filenames for missing participant names",
-              TRUE
-            ),
-            fileInput(
-              "subject_map",
-              "Subject mapping CSV (optional)",
-              accept = ".csv"
-            ),
-            checkboxInput(
-              "verbose",
-              "Show FFmpeg diagnostics in console",
-              FALSE
-            ),
-            actionButton("reset_matching", "Reset matching and diagnostics")
           ),
           accordion_panel(
             "Synchrony selection",
@@ -201,7 +182,8 @@ ui <- page_sidebar(
           selectInput(
             "clip_order",
             "Order clips by",
-            c("Time" = "time", "Rank" = "rank"),
+            c("Rank" = "rank", "Time" = "time"),
+            selected = "rank",
             width = "180px"
           ),
           actionButton("previous", "← Previous"),
@@ -214,29 +196,7 @@ ui <- page_sidebar(
     ),
     nav_panel(
       "Instructions",
-      card(
-        card_header("How to create clips"),
-        tags$ol(
-          tags$li("Upload one video (MP4, MOV, MKV, or AVI)."),
-          tags$li(
-            "Upload two distinct, detailed FaceReader exports (TXT or XLSX), ",
-            "one for each participant. Their Filename metadata must match the video, ",
-            "and both exports must use the same frame rate."
-          ),
-          tags$li(
-            "Optionally adjust Advanced options in the sidebar. If using a subject ",
-            "mapping CSV, include export_filename and subject columns."
-          ),
-          tags$li(
-            "When all inputs pass validation, select Process video. ",
-            "Review clips on the Clips tab, then download the clips ZIP."
-          )
-        ),
-        p(
-          "Clear inputs removes uploads and previously generated clips. ",
-          "Reset all inputs also restores default settings; each advanced panel has its own reset button."
-        )
-      )
+      includeMarkdown(file.path(app_root, "instructions.qmd"))
     )
   )
 )
@@ -267,6 +227,24 @@ server <- function(input, output, session) {
       notified_upload_warnings <<- character()
     },
     ignoreInit = TRUE
+  )
+  observeEvent(
+    list(input$first, input$second),
+    {
+      names <- list(
+        if (!is.null(input$first)) participant_name(input$first),
+        if (!is.null(input$second)) participant_name(input$second)
+      )
+      current <- isolate(input$optimised_subject)
+      choices <- subject_choices(names[[1L]], names[[2L]])
+      updateSelectInput(
+        session,
+        "optimised_subject",
+        choices = choices,
+        selected = if (isTRUE(current %in% choices)) current else "both"
+      )
+    },
+    ignoreNULL = FALSE
   )
   session$onSessionEnded(function() {
     if (!is.null(worker) && worker$is_alive()) {
@@ -362,15 +340,10 @@ server <- function(input, output, session) {
   reset_clip_export <- function() {
     updateNumericInput(session, "n", value = 10)
     updateSelectizeInput(session, "emotion", selected = "happy")
-    updateTextInput(session, "optimised_subject", value = "both")
+    updateSelectInput(session, "optimised_subject", selected = "both")
     updateCheckboxInput(session, "only_synchronies", value = TRUE)
     updateNumericInput(session, "buffer_before", value = 5)
     updateNumericInput(session, "buffer_after", value = 3)
-  }
-  reset_matching <- function() {
-    updateCheckboxInput(session, "subject_from_filename", value = TRUE)
-    updateCheckboxInput(session, "verbose", value = FALSE)
-    session$sendCustomMessage("clear-upload-inputs", "subject_map")
   }
   reset_synchrony <- function() {
     updateNumericInput(session, "time_limit", value = 3)
@@ -389,9 +362,6 @@ server <- function(input, output, session) {
   observeEvent(input$reset_clip_export, {
     if (!state$busy) reset_clip_export()
   })
-  observeEvent(input$reset_matching, {
-    if (!state$busy) reset_matching()
-  })
   observeEvent(input$reset_synchrony, {
     if (!state$busy) reset_synchrony()
   })
@@ -404,10 +374,9 @@ server <- function(input, output, session) {
     }
     clear_inputs()
     reset_clip_export()
-    reset_matching()
     reset_synchrony()
     reset_episode()
-    updateSelectInput(session, "clip_order", selected = "time")
+    updateSelectInput(session, "clip_order", selected = "rank")
   })
   output$processing_progress <- renderUI({
     if (!state$busy) {

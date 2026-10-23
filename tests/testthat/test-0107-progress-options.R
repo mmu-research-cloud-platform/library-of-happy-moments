@@ -90,3 +90,15 @@ test_that("0110 progress UI renders real percentage when available", {
     expect_false(state$busy)
   })
 })
+
+test_that("0111 instructions explain advanced option behavior", {
+  html <- htmltools::renderTags(app_environment$ui)$html
+  expect_match(html, 'data-value="Instructions"', fixed = TRUE)
+  expect_true(file.exists(file.path(app_path, "instructions.qmd")))
+  expect_match(html, "Advanced options reference", fixed = TRUE)
+  expect_match(html, "Entry and exit thresholds", fixed = TRUE)
+  expect_match(html, "Delta threshold and delta window", fixed = TRUE)
+  expect_match(html, "Missing threshold", fixed = TRUE)
+  expect_match(html, "Optimised subject", fixed = TRUE)
+  expect_match(html, "FaceReader Converter documentation", fixed = TRUE)
+})

@@ -1,6 +1,7 @@
 library(shiny)
 library(bslib)
 source("R/app_helpers.R", local = TRUE)
+source("R/multi_video.R", local = TRUE)
 
 app_root <- normalizePath(".", winslash = "/", mustWork = TRUE)
 startup_token <- Sys.getenv("STARTUP_TOKEN", unset = "")
@@ -35,12 +36,12 @@ ui <- page_sidebar(
     "$(function() {
     Shiny.addCustomMessageHandler('process-readiness', function(status) {
       $('#process').prop('disabled', !status.ready);
-      $('#clear_inputs, [id^=reset_]').prop('disabled', status.busy);
+      $('#clear_inputs, #add_video, [id^=remove_video_], [id^=reset_], input[type=file], #audio_source, #duration_tolerance').prop('disabled', status.busy);
     });
     Shiny.addCustomMessageHandler('clear-upload-inputs', function(ids) {
       if (ids !== 'subject_map') $('#process').prop('disabled', true);
       (ids === 'subject_map' ? ['subject_map'] :
-        ['video', 'first', 'second', 'subject_map']).forEach(function(id) {
+        Array.from(document.querySelectorAll('input[type=file]'), function(el) { return el.id; })).forEach(function(id) {
         var input = $('#' + id);
         input.val('');
         input.closest('.input-group').find('input[type=text]').val('');
@@ -51,6 +52,10 @@ ui <- page_sidebar(
       Shiny.setInputValue('process', value + 1, {priority: 'event'});
     });
   });"
+  )), tags$script(src = "multi-video.js"), tags$style(HTML(
+    ".video-grid { display: grid; grid-template-columns: repeat(var(--video-columns, 2), minmax(0, 1fr)); gap: 1rem; }
+     .video-grid video { width: 100%; }
+     @media (max-width: 600px) { .video-grid { grid-template-columns: 1fr; } }"
   ))),
   sidebar = sidebar(
     card(
@@ -86,6 +91,15 @@ ui <- page_sidebar(
     ),
     accordion(
       open = FALSE,
+      accordion_panel(
+        "Multi-video",
+        div(id = "additional_videos"),
+        actionButton("add_video", "Add video"),
+        selectInput("audio_source", "Audio source", choices = c("First video added" = "video"), selected = "video"),
+        numericInput("duration_tolerance", "Duration tolerance (milliseconds)", 0, min = 0),
+        numericInput("video_columns", "Playback columns", 2, min = 1, step = 1),
+        actionButton("reset_multi_video", "Reset multi-video")
+      ),
       accordion_panel(
         "Advanced options",
         accordion(
@@ -218,11 +232,14 @@ ui <- page_sidebar(
       card(
         card_header("How to create clips"),
         tags$ol(
-          tags$li("Upload one video (MP4, MOV, MKV, or AVI)."),
+          tags$li("Upload one video (MP4, MOV, MKV, or AVI), then use Advanced options > Multi-video > Add video for more camera views. All videos must already share the same starting point."),
           tags$li(
             "Upload two distinct, detailed FaceReader exports (TXT or XLSX), ",
-            "one for each participant. Their Filename metadata must match the video, ",
-            "and both exports must use the same frame rate."
+            "one for each participant. Filename metadata is checked against the ",
+            "selected Audio source, with confirmation required for mismatches. The same two exports are shared by all views."
+          ),
+          tags$li(
+            "Choose the Audio source (first video added by default). All videos and both FaceReader exports must match in duration unless you set a duration tolerance in milliseconds. FaceReader duration includes its final Video Time frame. Accepted differences use the shortest video timeline."
           ),
           tags$li(
             "Optionally adjust Advanced options in the sidebar. If using a subject ",
@@ -230,7 +247,7 @@ ui <- page_sidebar(
           ),
           tags$li(
             "When all inputs pass validation, select Process video. ",
-            "Review clips on the Clips tab, then download the clips ZIP."
+            "Review synchronized clips on the Clips tab. Playback columns are configurable; downloaded clips always use a two-column composite (one video stays full-frame)."
           )
         ),
         p(
@@ -252,8 +269,49 @@ server <- function(input, output, session) {
     resource = NULL,
     status = "Upload a video and two detailed FaceReader files.",
     busy = FALSE,
-    percent = NULL
+    percent = NULL,
+    video_count = 1L,
+    primary = 1L,
+    results_root = NULL
   )
+  video_ids <- reactiveVal("video")
+  next_video_id <- 1L
+  videos <- reactive(lapply(video_ids(), function(id) input[[id]]))
+  primary_video <- reactive(match(input$audio_source %||% "video", video_ids()))
+  observeEvent(input$add_video, {
+    if (state$busy) return()
+    next_video_id <<- next_video_id + 1L
+    id <- paste0("video_", next_video_id)
+    insertUI("#additional_videos", "beforeEnd", ui = div(
+      id = paste0("container_", id),
+      fileInput(id, paste("Video", next_video_id), accept = paste0(".", video_extensions)),
+      actionButton(paste0("remove_", id), "Remove video")
+    ), immediate = TRUE)
+    video_ids(c(video_ids(), id))
+    observeEvent(input[[paste0("remove_", id)]], {
+      if (state$busy) return()
+      removeUI(paste0("#container_", id), immediate = TRUE)
+      video_ids(setdiff(video_ids(), id))
+    }, ignoreInit = TRUE)
+  })
+  observe({
+    ids <- video_ids()
+    labels <- vapply(seq_along(ids), function(i) {
+      upload <- input[[ids[[i]]]]
+      if (is.null(upload)) paste("Video", i) else paste(i, upload$name[[1L]], sep = ": ")
+    }, character(1))
+    selected <- isolate(input$audio_source) %||% "video"
+    if (!selected %in% ids) selected <- ids[[1L]]
+    updateSelectInput(session, "audio_source", choices = stats::setNames(ids, labels), selected = selected)
+  })
+  observe({
+    columns <- input$video_columns %||% 2
+    if (length(columns) != 1L || !is.finite(columns) || columns < 1 || columns != floor(columns)) {
+      showNotification("Playback columns must be a positive whole number.", type = "error")
+      return()
+    }
+    session$sendCustomMessage("video-columns", columns)
+  })
   worker <- NULL
   run_root <- NULL
   run_id <- 0L
@@ -262,10 +320,20 @@ server <- function(input, output, session) {
   notified_upload_warnings <- character()
   diagnostics <- FALSE
   observeEvent(
-    list(input$video, input$first, input$second),
+    list(videos(), input$first, input$second, input$audio_source, input$duration_tolerance, input$subject_map),
     {
       metadata_confirmed(FALSE)
       notified_upload_warnings <<- character()
+      if (state$busy) {
+        run_id <<- run_id + 1L
+        if (!is.null(worker) && worker$is_alive()) worker$kill_tree()
+        worker <<- NULL
+        finish_processing(error = simpleError("Inputs changed. Processing cancelled; regenerate clips."))
+      }
+      if (!is.null(state$manifest)) {
+        discard_results()
+        state$status <- "Inputs changed. Regenerate clips."
+      }
     },
     ignoreInit = TRUE
   )
@@ -287,10 +355,12 @@ server <- function(input, output, session) {
     media_tools[["ffprobe"]]
   }
   upload_validation_result <- reactive(upload_validation(
-    input$video,
+    videos(),
     input$first,
     input$second,
-    ffprobe
+    ffprobe,
+    primary = primary_video(),
+    duration_tolerance = input$duration_tolerance %||% 0
   ))
   upload_error <- reactive(upload_validation_result()$error)
   ready <- reactive(is.null(upload_error()))
@@ -347,7 +417,7 @@ server <- function(input, output, session) {
   observeEvent(readiness_error(), {
     if (!state$busy) {
       error <- readiness_error()
-      has_upload <- !is.null(input$video) ||
+      has_upload <- any(vapply(videos(), Negate(is.null), logical(1))) ||
         !is.null(input$first) ||
         !is.null(input$second)
       if (!is.null(option_error())) {
@@ -360,10 +430,9 @@ server <- function(input, output, session) {
         state$status <- "Inputs validated. Ready to process."
       }
     }
-  })
+  }, ignoreNULL = FALSE)
 
-  clear_inputs <- function() {
-    session$sendCustomMessage("clear-upload-inputs", TRUE)
+  discard_results <- function() {
     state$manifest <- NULL
     state$clip_dir <- NULL
     state$index <- 1L
@@ -371,6 +440,17 @@ server <- function(input, output, session) {
       removeResourcePath(state$resource)
       state$resource <- NULL
     }
+    if (!is.null(state$results_root)) {
+      unlink(state$results_root, recursive = TRUE, force = TRUE)
+      state$results_root <- NULL
+    }
+  }
+  clear_inputs <- function() {
+    session$sendCustomMessage("clear-upload-inputs", TRUE)
+    for (id in setdiff(video_ids(), "video")) removeUI(paste0("#container_", id), immediate = TRUE)
+    video_ids("video")
+    updateSelectInput(session, "audio_source", selected = "video")
+    discard_results()
     if (!is.null(run_root)) {
       unlink(run_root, recursive = TRUE, force = TRUE)
       run_root <<- NULL
@@ -413,6 +493,17 @@ server <- function(input, output, session) {
     updateNumericInput(session, "consecutive_missing", value = 150)
     updateNumericInput(session, "cores", value = 0)
   }
+  reset_multi_video <- function() {
+    for (id in setdiff(video_ids(), "video")) removeUI(paste0("#container_", id), immediate = TRUE)
+    video_ids("video")
+    updateSelectInput(session, "audio_source", selected = "video")
+    updateNumericInput(session, "duration_tolerance", value = 0)
+    updateNumericInput(session, "video_columns", value = 2)
+    discard_results()
+  }
+  observeEvent(input$reset_multi_video, {
+    if (!state$busy) reset_multi_video()
+  })
   observeEvent(input$reset_clip_export, {
     if (!state$busy) reset_clip_export()
   })
@@ -435,6 +526,8 @@ server <- function(input, output, session) {
     reset_synchrony()
     reset_episode()
     updateSelectInput(session, "clip_order", selected = "time")
+    updateNumericInput(session, "duration_tolerance", value = 0)
+    updateNumericInput(session, "video_columns", value = 2)
   })
   output$processing_progress <- renderUI({
     if (!state$busy) {
@@ -500,6 +593,7 @@ server <- function(input, output, session) {
     )
     if (!is.null(error)) {
       state$status <- display_error(error)
+      discard_results()
       if (!is.null(run_root)) {
         unlink(run_root, recursive = TRUE, force = TRUE)
         run_root <<- NULL
@@ -541,10 +635,20 @@ server <- function(input, output, session) {
       basename(dirname(clip_dir))
     )
     addResourcePath(resource, clip_dir)
+    state$resource <- resource
+    http_server <- shiny::getShinyOption("server")
+    if (!is.null(http_server)) {
+      http_server$setStaticPath(.list = stats::setNames(list(httpuv::staticPath(
+        clip_dir, headers = list("Accept-Ranges" = "bytes")
+      )), resource))
+    }
     state$manifest <- manifest
     state$clip_dir <- clip_dir
     state$index <- 1L
     state$resource <- resource
+    state$video_count <- result$video_count %||% 1L
+    state$primary <- result$primary %||% 1L
+    state$results_root <- run_root
     state$status <- sprintf("Generated %d clips.", nrow(manifest))
     run_root <<- NULL
   }
@@ -599,7 +703,7 @@ server <- function(input, output, session) {
     if (is.null(worker) || !identical(expected_run_id, run_id)) {
       return()
     }
-    output_text <- worker$read_output()
+    output_text <- paste0(worker$read_output(), worker$read_error())
     if (diagnostics && nzchar(output_text)) {
       message(output_text)
     }
@@ -616,7 +720,7 @@ server <- function(input, output, session) {
         0.2
       )
     } else {
-      remaining_output <- worker$read_output()
+      remaining_output <- paste0(worker$read_output(), worker$read_error())
       if (diagnostics && nzchar(remaining_output)) {
         message(remaining_output)
       }
@@ -632,7 +736,10 @@ server <- function(input, output, session) {
       if (inherits(result, "error")) {
         finish_processing(error = result)
       } else {
-        finish_processing(result = result)
+        tryCatch(
+          finish_processing(result = result),
+          error = function(error) finish_processing(error = error)
+        )
       }
     }
   }
@@ -678,12 +785,7 @@ server <- function(input, output, session) {
     state$busy <- TRUE
     state$percent <- NULL
     bslib::update_task_button("process", state = "busy")
-    state$manifest <- NULL
-    state$clip_dir <- NULL
-    if (!is.null(state$resource)) {
-      removeResourcePath(state$resource)
-      state$resource <- NULL
-    }
+    discard_results()
     state$status <- "Validating inputs…"
     tryCatch(
       {
@@ -693,7 +795,7 @@ server <- function(input, output, session) {
         run_root <<- tempfile("run-", tmpdir = workspace)
         dir.create(run_root)
         uploads <- stage_uploads(
-          input$video,
+          videos(),
           input$first,
           input$second,
           file.path(run_root, "inputs")
@@ -701,29 +803,22 @@ server <- function(input, output, session) {
         options <- pipeline_options(input, subjects())
         diagnostics <<- isTRUE(options$verbose)
         state$status <- "Processing video…"
-        arguments <- c(
-          list(
-            inpath = dirname(uploads[[1L]]),
-            video_path = uploads[[1L]],
-            output_dir = file.path(run_root, "clips"),
-            output = "folder",
-            overwrite = FALSE,
-            ffmpeg = media_tools[["ffmpeg"]]
-          ),
-          options
+        arguments <- list(
+          videos = uploads[seq_along(video_ids())],
+          exports = tail(uploads, 2L),
+          output_dir = file.path(run_root, "clips"),
+          primary = primary_video(),
+          tolerance_ms = input$duration_tolerance %||% 0,
+          options = options,
+          media_tools = media_tools
         )
         worker <<- callr::r_bg(
-          function(arguments, ffprobe_directory) {
-            Sys.setenv(
-              PATH = paste(
-                ffprobe_directory,
-                Sys.getenv("PATH"),
-                sep = .Platform$path.sep
-              )
-            )
-            do.call(facereaderconverter::synchrony_moments_pipeline, arguments)
+          function(arguments, root) {
+            source(file.path(root, "R", "app_helpers.R"), local = TRUE)
+            source(file.path(root, "R", "multi_video.R"), local = TRUE)
+            do.call(run_shared_video_pipeline, arguments)
           },
-          args = list(arguments, dirname(media_tools[["ffprobe"]])),
+          args = list(arguments, app_root),
           stdout = "|",
           stderr = "|",
           supervise = TRUE
@@ -784,19 +879,19 @@ server <- function(input, output, session) {
       return(p("Clip file is unavailable."))
     }
     tagList(
-      tags$video(
-        controls = NA,
-        preload = "metadata",
-        width = "100%",
-        tags$source(
-          src = paste0(
-            state$resource,
-            "/",
-            utils::URLencode(filename, reserved = TRUE)
-          ),
-          type = "video/mp4"
-        )
+      div(class = "video-grid", `data-primary` = state$primary - 1L,
+        `data-duration` = clip$duration_seconds[[1L]],
+        lapply(seq_len(state$video_count), function(camera) {
+          path <- if (state$video_count == 1L) filename else paste0("views/video_", camera, "/", filename)
+          tags$video(
+              controls = if (camera == state$primary) NA else NULL,
+              muted = if (camera != state$primary) NA else NULL,
+              preload = "metadata", playsinline = NA,
+              tags$source(src = paste0(state$resource, "/", utils::URLencode(path, reserved = FALSE)), type = "video/mp4")
+          )
+        })
       ),
+      p(class = "playback-error", role = "alert"),
       p(sprintf(
         "Rank %s · Time order %s · %s",
         clip$selection_rank[[1L]],
@@ -808,7 +903,10 @@ server <- function(input, output, session) {
   output$download <- downloadHandler(
     filename = function() "shared_clips.zip",
     content = function(file) {
-      create_clips_zip(state$manifest, state$clip_dir, file)
+      tryCatch(create_clips_zip(state$manifest, state$clip_dir, file), error = function(error) {
+        showNotification(display_error(error), type = "error", duration = NULL)
+        stop(error)
+      })
     }
   )
 }

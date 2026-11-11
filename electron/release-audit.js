@@ -83,7 +83,9 @@ function auditBundle(folder) {
         .map((entry) => [`${category}/${entry.name}`, sha256(path.join(dir, entry.name, 'DESCRIPTION'))]))),
     nativeFileHashes: Object.fromEntries(nativeFiles(folder).sort()
       .map((name) => [name, sha256(path.join(folder, name))])),
-    appSourceHashes: Object.fromEntries(['app.R', ...fs.readdirSync(path.join(bundle, 'app', 'R')).map((name) => `R/${name}`)]
+    appSourceHashes: Object.fromEntries(['app.R', ...fs.readdirSync(path.join(bundle, 'app', 'R')).map((name) => `R/${name}`),
+      ...(fs.existsSync(path.join(bundle, 'app', 'www'))
+        ? fs.readdirSync(path.join(bundle, 'app', 'www')).map((name) => `www/${name}`) : [])]
       .map((name) => [name, sha256(path.join(bundle, 'app', name))]))
   };
   if (!inventory.rVersion) throw new Error('Missing R base version');

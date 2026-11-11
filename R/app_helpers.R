@@ -1,4 +1,5 @@
 video_extensions <- c("mp4", "mov", "mkv", "avi")
+`%||%` <- function(value, default) if (is.null(value)) default else value
 fr_extensions <- c("txt", "xlsx")
 face_reader_emotions <- c(
   "happy",
@@ -82,14 +83,95 @@ validate_detailed_export <- function(upload, video) {
   invisible(metadata)
 }
 
-upload_validation <- function(video, first, second, ffprobe) {
+video_upload_list <- function(video) {
+  if (is.data.frame(video)) {
+    return(lapply(seq_len(nrow(video)), function(i) video[i, , drop = FALSE]))
+  }
+  if (is.list(video) && length(video)) return(video)
+  list(NULL)
+}
+
+validate_video_durations <- function(durations, tolerance_ms = 0, filenames = names(durations), label = "Video") {
+  if (
+    length(tolerance_ms) != 1L || !is.numeric(tolerance_ms) ||
+      !is.finite(tolerance_ms) || tolerance_ms < 0
+  ) {
+    stop("Duration tolerance must be a non-negative number of milliseconds.", call. = FALSE)
+  }
+  if (!length(durations) || any(!is.finite(durations)) || any(durations <= 0)) {
+    stop("Every video needs a readable, positive video-stream duration.", call. = FALSE)
+  }
+  difference_ms <- (max(durations) - min(durations)) * 1000
+  # Ignore only floating-point subtraction noise at the tolerance boundary.
+  if (difference_ms - tolerance_ms > 1e-9) {
+    stop(sprintf(
+      "%s durations differ by %.6f ms (tolerance %.6f ms): %s.",
+      label, difference_ms, tolerance_ms,
+      paste(sprintf("%s = %.9f seconds", filenames, durations), collapse = "; ")
+    ), call. = FALSE)
+  }
+  min(durations)
+}
+
+facereader_duration <- function(data, fps, filename) {
+  times <- suppressWarnings(as.numeric(data$video_time))
+  if (!length(times) || any(!is.finite(times)) || any(times < 0) ||
+      length(fps) != 1L || !is.finite(fps) || fps <= 0) {
+    stop(sprintf("FaceReader '%s' needs valid Video Time values and a frame rate.", filename), call. = FALSE)
+  }
+  # Video Time identifies a frame's start, so include the final frame.
+  max(times) + 1 / fps
+}
+
+probe_video <- function(path, ffprobe) {
+  probe <- suppressWarnings(system2(
+    ffprobe,
+    c("-v", "error", "-select_streams", "v:0", "-show_entries",
+      "stream=codec_type,duration,width,height,avg_frame_rate:stream_tags=DURATION:format=format_name",
+      "-of", "default=noprint_wrappers=1", shQuote(path)),
+    stdout = TRUE, stderr = TRUE
+  ))
+  if (!is.null(attr(probe, "status")) || !"codec_type=video" %in% probe) {
+    stop(sprintf("The uploaded video '%s' cannot be read: %s", basename(path),
+      paste(probe, collapse = " ")), call. = FALSE)
+  }
+  value <- function(key) sub(paste0("^", key, "="), "", probe[startsWith(probe, paste0(key, "="))])
+  formats <- strsplit(value("format_name"), ",", fixed = TRUE)
+  if (length(formats) != 1L || !any(formats[[1L]] %in% c("mov", "mp4", "matroska", "avi"))) {
+    stop(sprintf("The uploaded video '%s' cannot be read as MP4, MOV, MKV or AVI.", basename(path)), call. = FALSE)
+  }
+  duration <- suppressWarnings(as.numeric(value("duration")))
+  if (length(duration) != 1L || !is.finite(duration)) {
+    timestamp <- value("TAG:DURATION")
+    parts <- if (length(timestamp) == 1L) strsplit(timestamp, ":", fixed = TRUE)[[1L]] else character()
+    parts <- suppressWarnings(as.numeric(parts))
+    duration <- if (length(parts) == 3L && all(is.finite(parts))) sum(parts * c(3600, 60, 1)) else NA_real_
+  }
+  dimensions <- suppressWarnings(as.numeric(c(value("width"), value("height"))))
+  rate <- strsplit(value("avg_frame_rate"), "/", fixed = TRUE)
+  rate <- if (length(rate) == 1L) suppressWarnings(as.numeric(rate[[1L]])) else numeric()
+  fps <- if (length(rate) == 2L) rate[[1L]] / rate[[2L]] else NA_real_
+  if (length(dimensions) != 2L || any(!is.finite(dimensions)) || any(dimensions <= 0) ||
+      !is.finite(fps) || fps <= 0 || length(duration) != 1L || !is.finite(duration) || duration <= 0) {
+    stop(sprintf("Video '%s' needs readable duration, dimensions and frame rate.", basename(path)), call. = FALSE)
+  }
+  list(duration = duration, width = dimensions[[1L]], height = dimensions[[2L]], fps = fps)
+}
+
+upload_validation <- function(video, first, second, ffprobe, primary = 1L, duration_tolerance = 0) {
   tryCatch(
     {
       warnings <- character()
       video_key <- function(value) {
         tolower(tools::file_path_sans_ext(basename(gsub("\\\\", "/", value))))
       }
-      validate_upload(video, video_extensions, "video")
+      videos <- video_upload_list(video)
+      for (upload in videos) validate_upload(upload, video_extensions, "video")
+      if (length(primary) != 1L || !is.numeric(primary) || !is.finite(primary) ||
+          primary != floor(primary) || primary < 1 || primary > length(videos)) {
+        stop("Select an uploaded video as the Audio source.", call. = FALSE)
+      }
+      video <- videos[[primary]]
       first_metadata <- validate_detailed_export(first, video)
       second_metadata <- validate_detailed_export(second, video)
       for (entry in list(
@@ -129,7 +211,7 @@ upload_validation <- function(video, first, second, ffprobe) {
         )
       }
       names <- vapply(
-        list(video, first, second),
+        c(videos, list(first, second)),
         function(upload) safe_upload_name(upload$name[[1L]]),
         character(1)
       )
@@ -142,26 +224,20 @@ upload_validation <- function(video, first, second, ffprobe) {
       if (length(ffprobe) != 1L || !file.exists(ffprobe)) {
         stop("FFprobe is unavailable.", call. = FALSE)
       }
-      probe <- suppressWarnings(system2(
-        ffprobe,
-        c(
-          "-v",
-          "error",
-          "-select_streams",
-          "v:0",
-          "-show_entries",
-          "stream=codec_type",
-          "-of",
-          "default=noprint_wrappers=1",
-          shQuote(video$datapath[[1L]])
-        ),
-        stdout = TRUE,
-        stderr = TRUE
-      ))
-      if (!is.null(attr(probe, "status")) || !"codec_type=video" %in% probe) {
-        stop("The uploaded video cannot be read.", call. = FALSE)
-      }
-      list(error = NULL, warnings = unique(warnings))
+      info <- lapply(videos, function(upload) probe_video(upload$datapath[[1L]], ffprobe))
+      durations <- vapply(info, `[[`, numeric(1), "duration")
+      shared_duration <- validate_video_durations(durations, duration_tolerance, names[seq_along(videos)])
+      fr_durations <- vapply(seq_along(list(first, second)), function(i) {
+        upload <- list(first, second)[[i]]
+        staged <- tempfile(fileext = paste0(".", tolower(tools::file_ext(upload$name[[1L]]))))
+        on.exit(unlink(staged), add = TRUE)
+        if (!file.copy(upload$datapath[[1L]], staged)) stop("Could not inspect FaceReader duration.", call. = FALSE)
+        data <- facereaderconverter::loadFRfile(staged, values_as_numeric = TRUE, clean_names = TRUE)
+        facereader_duration(data, list(first_metadata, second_metadata)[[i]]$fps, upload$name[[1L]])
+      }, numeric(1))
+      validate_video_durations(c(durations, fr_durations), duration_tolerance, names, label = "Video/FaceReader")
+      list(error = NULL, warnings = unique(warnings), video_info = info,
+        shared_duration = shared_duration, fr_durations = fr_durations)
     },
     error = function(error) {
       list(error = error, warnings = character())
@@ -182,13 +258,14 @@ safe_upload_name <- function(name) {
 }
 
 stage_uploads <- function(video, first, second, root) {
-  validate_upload(video, video_extensions, "video")
+  videos <- video_upload_list(video)
+  for (upload in videos) validate_upload(upload, video_extensions, "video")
   validate_upload(first, fr_extensions, "FaceReader")
   validate_upload(second, fr_extensions, "FaceReader")
   if (!dir.create(root, recursive = TRUE, showWarnings = FALSE)) {
     stop("Could not create a processing workspace.", call. = FALSE)
   }
-  files <- list(video, first, second)
+  files <- c(videos, list(first, second))
   names <- vapply(
     files,
     function(x) safe_upload_name(x$name[[1L]]),

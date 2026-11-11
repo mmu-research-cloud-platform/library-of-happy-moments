@@ -8,7 +8,7 @@ const { pipeline } = require('node:stream/promises');
 
 const root = path.resolve(__dirname, '..');
 const assetName = 'ffmpeg-n9.0-latest-win64-gpl-9.0.zip';
-const releaseApi = 'https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/tags/latest';
+const releaseApi = 'https://api.github.com/repos/FFmpeg-Builds/FFmpeg-Builds/releases/tags/latest';
 const files = ['ffmpeg.exe', 'ffprobe.exe', 'LICENSE.txt'];
 const manifestFile = path.join(root, 'bin', '.downloads', 'windows-release.json');
 const toolsDir = path.join(root, 'bin', 'windows-x64');
@@ -74,7 +74,7 @@ function extractMember(archive, member, destination) {
 
 function validateManifest(manifest, dir = toolsDir) {
   if (!manifest || !/^sha256:[a-f0-9]{64}$/.test(manifest.assetDigest || '') ||
-      !/^https:\/\/github\.com\/BtbN\/FFmpeg-Builds\/releases\/download\//.test(manifest.assetUrl || '') ||
+      !/^https:\/\/github\.com\/(?:BtbN|FFmpeg-Builds)\/FFmpeg-Builds\/releases\/download\//.test(manifest.assetUrl || '') ||
       !Number.isSafeInteger(manifest.assetId) || manifest.assetId <= 0) {
     throw new Error('Missing verified upstream asset identity');
   }
@@ -155,7 +155,7 @@ function writeReleaseNotice(folder, sourceManifest = manifestFile) {
   const manifest = JSON.parse(fs.readFileSync(sourceManifest, 'utf8'));
   if (!Number.isFinite(Date.parse(manifest.releasePublishedAt)) ||
       !Number.isFinite(Date.parse(manifest.downloadedAt)) ||
-      !/^https:\/\/github\.com\/BtbN\/FFmpeg-Builds\/releases\/tag\//.test(manifest.releaseUrl || '')) {
+      !/^https:\/\/github\.com\/(?:BtbN|FFmpeg-Builds)\/FFmpeg-Builds\/releases\/tag\//.test(manifest.releaseUrl || '')) {
     throw new Error('Incomplete media release provenance');
   }
   validateManifest(manifest, path.join(folder, 'resources', 'bundle', 'app', 'bin', 'windows-x64'));

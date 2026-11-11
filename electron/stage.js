@@ -36,6 +36,7 @@ try {
   fs.mkdirSync(appDir);
   fs.copyFileSync(path.join(root, 'app.R'), path.join(appDir, 'app.R'));
   fs.cpSync(path.join(root, 'R'), path.join(appDir, 'R'), { recursive: true });
+  fs.cpSync(path.join(root, 'www'), path.join(appDir, 'www'), { recursive: true });
   fs.mkdirSync(path.join(appDir, 'bin'));
   fs.cpSync(path.join(root, 'bin', 'windows-x64'), path.join(appDir, 'bin', 'windows-x64'), { recursive: true });
   fs.copyFileSync(path.join(root, 'LICENSE'), path.join(appDir, 'LICENSE'));

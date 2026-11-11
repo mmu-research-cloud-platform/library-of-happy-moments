@@ -273,7 +273,105 @@ parse_emotions <- function(value, allow_neutral = FALSE) {
   unique(value)
 }
 
-pipeline_options <- function(input) {
+uploaded_subjects <- function(
+  first, second, subject_from_filename, subject_map, tmpdir = tempdir()
+) {
+  uploads <- list(first, second)
+  root <- tempfile("subjects-", tmpdir = tmpdir)
+  dir.create(root)
+  on.exit(unlink(root, recursive = TRUE), add = TRUE)
+  subjects <- vapply(uploads, function(upload) {
+    validate_upload(upload, fr_extensions, "FaceReader")
+    filename <- safe_upload_name(upload$name[[1L]])
+    path <- file.path(root, filename)
+    if (!file.copy(upload$datapath[[1L]], path, overwrite = TRUE)) {
+      stop("Could not inspect the uploaded subjects. Re-upload the exports.", call. = FALSE)
+    }
+    data <- facereaderconverter::loadFRfile(
+      path, values_as_numeric = TRUE, clean_names = TRUE
+    )
+    # Match the pipeline's loaded-data precedence, not header metadata.
+    map_index <- match(tolower(filename), tolower(names(subject_map)))
+    participants <- if (!is.na(map_index)) {
+      trimws(unname(subject_map[[map_index]]))
+    } else if ("participant_name" %in% names(data)) {
+      unique(trimws(as.character(data$participant_name)))
+    } else {
+      character()
+    }
+    participants <- participants[!is.na(participants) & nzchar(participants)]
+    if (!length(participants) && isTRUE(subject_from_filename)) {
+      participants <- tools::file_path_sans_ext(filename)
+    }
+    if (length(participants) != 1L) {
+      stop(
+        sprintf(
+          "Cannot resolve one subject for '%s'. Supply a Subject mapping CSV, or enable filename fallback for missing names.",
+          filename
+        ),
+        call. = FALSE
+      )
+    }
+    participants
+  }, character(1), USE.NAMES = FALSE)
+  subject_choices(subjects)
+  subjects
+}
+
+subject_choices <- function(subjects) {
+  if (
+    length(subjects) != 2L || anyNA(subjects) ||
+      any(!nzchar(subjects)) || anyDuplicated(subjects)
+  ) {
+    stop(
+      "The exports must resolve to two distinct subjects. Supply a Subject mapping CSV with a unique subject for each export.",
+      call. = FALSE
+    )
+  }
+  patterns <- vapply(subjects, function(subject) {
+    characters <- strsplit(subject, "", fixed = TRUE)[[1L]]
+    special <- characters %in% c(
+      "\\", ".", "[", "]", "{", "}", "(", ")", "*", "+", "?", "^", "$", "|"
+    )
+    characters[special] <- paste0("\\", characters[special])
+    paste0("^", paste0(characters, collapse = ""), "$")
+  }, character(1), USE.NAMES = FALSE)
+  c("Both subjects (combined)" = "both", stats::setNames(patterns, subjects))
+}
+
+resolve_optimised_subject <- function(selection, subjects = NULL) {
+  choices <- if (is.null(subjects)) "both" else unname(subject_choices(subjects))
+  if (
+    length(selection) != 1L || is.na(selection) ||
+      !selection %in% choices
+  ) {
+    stop(
+      "Select an uploaded subject from the Optimised subject dropdown (or Both subjects). If the uploads or mapping changed, select again.",
+      call. = FALSE
+    )
+  }
+  selection
+}
+
+display_error <- function(error) {
+  message <- gsub(
+    "\033\\][^\007\033]*(?:\007|\033\\\\)|\033\\[[0-?]*[ -/]*[@-~]",
+    "", conditionMessage(error), perl = TRUE
+  )
+  if (grepl(
+    "`optimised_subject` must match exactly one subject name.",
+    message, fixed = TRUE
+  )) {
+    message <- paste(
+      message,
+      "Re-select an uploaded subject from the Optimised subject dropdown and check the Subject mapping CSV. If the name is correct, the subject may have no detected intervals; check the episode settings and selected emotions.",
+      sep = "\n"
+    )
+  }
+  message
+}
+
+pipeline_options <- function(input, subjects = NULL) {
   numeric_options <- c(
     "T_up",
     "T_down",
@@ -331,7 +429,7 @@ pipeline_options <- function(input) {
     exclude_emotions = "neutral",
     n = as.integer(input$n),
     emotion = parse_emotions(input$emotion),
-    optimised_subject = input$optimised_subject,
+    optimised_subject = resolve_optimised_subject(input$optimised_subject, subjects),
     only_synchronies = input$only_synchronies,
     buffer = c(before = input$buffer_before, after = input$buffer_after),
     buffer_units = "seconds"

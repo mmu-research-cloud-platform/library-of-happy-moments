@@ -28,9 +28,11 @@ See [SETUP.md](SETUP.md) for detailed setup, the optional Electron desktop shell
 
 ## Multiple camera views
 
-Start with one video input. Open **Advanced options > Multi-video** to select **Add video** for each additional camera and adjust audio, duration tolerance and playback columns. **Reset multi-video** removes extra inputs and restores those defaults without clearing the first video or FaceReader exports. Upload exactly two detailed FaceReader exports, one per participant, shared by every view. Videos must already start at the same point; the app does not align recordings automatically.
+Start with one video input. Select **Add video** below it in the main sidebar for each additional camera. When multiple inputs exist, each has a **Remove video** button, including the first; removing one preserves the other uploads and renumbers their labels. The last input cannot be removed. Open **Advanced options > Multi-video** to adjust audio, duration tolerance and playback columns. **Reset multi-video** retains the first remaining video and FaceReader exports, removes other video inputs and restores those defaults. Upload exactly two detailed FaceReader exports, one per participant, shared by every view. Videos must already start at the same point; the app does not align recordings automatically.
 
 **Audio source** lets you choose which video's audio is used for playback and downloads; it defaults to the first video added. Filename metadata in the FaceReader exports is checked against that video, with confirmation required for mismatches. Other videos are muted; a source without audio produces silent clips.
+
+Empty video inputs are ignored. Processing requires at least one uploaded video and both FaceReader exports, with the usual format, duration and analysis-option checks still applying. Only uploaded videos appear in **Audio source**.
 
 Durations of all videos **and both FaceReader exports** must match exactly by default. Set **Duration tolerance (milliseconds)** to allow a difference between the longest and shortest file; a larger difference blocks processing and lists the file durations. A FaceReader export's duration is its final `Video Time` plus one frame at the export's frame rate. Missing or invalid timestamps are blocking errors. Accepted differences use the shortest video timeline without padding or stretching.
 

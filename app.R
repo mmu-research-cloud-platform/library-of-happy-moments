@@ -60,7 +60,13 @@ ui <- page_sidebar(
   sidebar = sidebar(
     card(
       card_header("Video"),
-      fileInput("video", "Select video", accept = paste0(".", video_extensions))
+      div(id = "additional_videos",
+        div(id = "container_video",
+          fileInput("video", "Select video", accept = paste0(".", video_extensions)),
+          uiOutput("remove_control_video")
+        )
+      ),
+      actionButton("add_video", "Add video")
     ),
     card(
       card_header("FaceReader participant 1"),
@@ -93,8 +99,6 @@ ui <- page_sidebar(
       open = FALSE,
       accordion_panel(
         "Multi-video",
-        div(id = "additional_videos"),
-        actionButton("add_video", "Add video"),
         selectInput("audio_source", "Audio source", choices = c("First video added" = "video"), selected = "video"),
         numericInput("duration_tolerance", "Duration tolerance (milliseconds)", 0, min = 0),
         numericInput("video_columns", "Playback columns", 2, min = 1, step = 1),
@@ -232,7 +236,7 @@ ui <- page_sidebar(
       card(
         card_header("How to create clips"),
         tags$ol(
-          tags$li("Upload one video (MP4, MOV, MKV, or AVI), then use Advanced options > Multi-video > Add video for more camera views. All videos must already share the same starting point."),
+          tags$li("Upload one video (MP4, MOV, MKV, or AVI), then use Add video below it in the sidebar for more camera views. When multiple videos exist, Remove video removes only that input, including the first; remaining uploads are preserved and labels are renumbered. Audio, duration tolerance and playback columns remain in Advanced options > Multi-video. All videos must already share the same starting point."),
           tags$li(
             "Upload two distinct, detailed FaceReader exports (TXT or XLSX), ",
             "one for each participant. Filename metadata is checked against the ",
@@ -276,32 +280,51 @@ server <- function(input, output, session) {
   )
   video_ids <- reactiveVal("video")
   next_video_id <- 1L
-  videos <- reactive(lapply(video_ids(), function(id) input[[id]]))
-  primary_video <- reactive(match(input$audio_source %||% "video", video_ids()))
+  uploaded_video_ids <- reactive({
+    ids <- video_ids()
+    ids[vapply(ids, function(id) !is.null(input[[id]]), logical(1))]
+  })
+  videos <- reactive(lapply(uploaded_video_ids(), function(id) input[[id]]))
+  primary_video <- reactive({
+    selected <- match(input$audio_source, uploaded_video_ids())
+    if (length(selected) != 1L || is.na(selected)) 1L else selected
+  })
+  register_video_removal <- function(id) {
+    force(id)
+    output[[paste0("remove_control_", id)]] <- renderUI({
+      if (length(video_ids()) > 1L) {
+        actionButton(paste0("remove_", id), "Remove video")
+      }
+    })
+    observeEvent(input[[paste0("remove_", id)]], {
+      if (state$busy || length(video_ids()) <= 1L || !id %in% video_ids()) return()
+      removeUI(paste0("#container_", id), immediate = TRUE)
+      video_ids(setdiff(video_ids(), id))
+    }, ignoreInit = TRUE)
+  }
+  register_video_removal("video")
   observeEvent(input$add_video, {
     if (state$busy) return()
     next_video_id <<- next_video_id + 1L
     id <- paste0("video_", next_video_id)
+    label_id <- paste0("label_", id)
+    output[[label_id]] <- renderText(paste("Video", match(id, video_ids())))
     insertUI("#additional_videos", "beforeEnd", ui = div(
       id = paste0("container_", id),
-      fileInput(id, paste("Video", next_video_id), accept = paste0(".", video_extensions)),
-      actionButton(paste0("remove_", id), "Remove video")
+      fileInput(id, textOutput(label_id, inline = TRUE), accept = paste0(".", video_extensions)),
+      uiOutput(paste0("remove_control_", id))
     ), immediate = TRUE)
     video_ids(c(video_ids(), id))
-    observeEvent(input[[paste0("remove_", id)]], {
-      if (state$busy) return()
-      removeUI(paste0("#container_", id), immediate = TRUE)
-      video_ids(setdiff(video_ids(), id))
-    }, ignoreInit = TRUE)
+    register_video_removal(id)
   })
   observe({
-    ids <- video_ids()
+    ids <- uploaded_video_ids()
     labels <- vapply(seq_along(ids), function(i) {
       upload <- input[[ids[[i]]]]
       if (is.null(upload)) paste("Video", i) else paste(i, upload$name[[1L]], sep = ": ")
     }, character(1))
     selected <- isolate(input$audio_source) %||% "video"
-    if (!selected %in% ids) selected <- ids[[1L]]
+    if (!selected %in% ids) selected <- if (length(ids)) ids[[1L]] else character()
     updateSelectInput(session, "audio_source", choices = stats::setNames(ids, labels), selected = selected)
   })
   observe({
@@ -445,11 +468,15 @@ server <- function(input, output, session) {
       state$results_root <- NULL
     }
   }
+  retain_first_video <- function() {
+    retained <- video_ids()[[1L]]
+    for (id in video_ids()[-1L]) removeUI(paste0("#container_", id), immediate = TRUE)
+    video_ids(retained)
+    updateSelectInput(session, "audio_source", selected = retained)
+  }
   clear_inputs <- function() {
     session$sendCustomMessage("clear-upload-inputs", TRUE)
-    for (id in setdiff(video_ids(), "video")) removeUI(paste0("#container_", id), immediate = TRUE)
-    video_ids("video")
-    updateSelectInput(session, "audio_source", selected = "video")
+    retain_first_video()
     discard_results()
     if (!is.null(run_root)) {
       unlink(run_root, recursive = TRUE, force = TRUE)
@@ -494,9 +521,7 @@ server <- function(input, output, session) {
     updateNumericInput(session, "cores", value = 0)
   }
   reset_multi_video <- function() {
-    for (id in setdiff(video_ids(), "video")) removeUI(paste0("#container_", id), immediate = TRUE)
-    video_ids("video")
-    updateSelectInput(session, "audio_source", selected = "video")
+    retain_first_video()
     updateNumericInput(session, "duration_tolerance", value = 0)
     updateNumericInput(session, "video_columns", value = 2)
     discard_results()
@@ -804,7 +829,7 @@ server <- function(input, output, session) {
         diagnostics <<- isTRUE(options$verbose)
         state$status <- "Processing video…"
         arguments <- list(
-          videos = uploads[seq_along(video_ids())],
+          videos = uploads[seq_along(uploaded_video_ids())],
           exports = tail(uploads, 2L),
           output_dir = file.path(run_root, "clips"),
           primary = primary_video(),

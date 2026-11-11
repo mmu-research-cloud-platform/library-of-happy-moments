@@ -100,10 +100,11 @@ ui <- page_sidebar(
               selected = "happy",
               multiple = TRUE
             ),
-            textInput(
+            selectInput(
               "optimised_subject",
-              "Optimised subject (both or regex)",
-              "both"
+              "Optimised subject",
+              choices = c("Both subjects (combined)" = "both"),
+              selected = "both"
             ),
             checkboxInput("only_synchronies", "Only synchronies", TRUE),
             numericInput(
@@ -293,12 +294,38 @@ server <- function(input, output, session) {
   ))
   upload_error <- reactive(upload_validation_result()$error)
   ready <- reactive(is.null(upload_error()))
+  subjects <- reactive({
+    if (is.null(input$first) || is.null(input$second)) {
+      return(NULL)
+    }
+    uploaded_subjects(
+      input$first, input$second, input$subject_from_filename,
+      parse_subject_map(input$subject_map), tmpdir = workspace
+    )
+  })
+  observe({
+    available <- tryCatch(subjects(), error = identity)
+    choices <- c("Both subjects (combined)" = "both")
+    if (!is.null(available) && !inherits(available, "error")) {
+      choices <- subject_choices(available)
+    }
+    selection <- isolate(input$optimised_subject)
+    if (is.null(selection)) selection <- "both"
+    if (!selection %in% choices) {
+      selection <- ""
+    }
+    updateSelectInput(
+      session, "optimised_subject",
+      choices = c("Select an uploaded subject" = "", choices),
+      selected = selection
+    )
+  })
   option_error <- reactive(tryCatch(
     {
       if (!ready()) {
         return(NULL)
       }
-      pipeline_options(input)
+      pipeline_options(input, subjects())
       NULL
     },
     error = identity
@@ -324,11 +351,11 @@ server <- function(input, output, session) {
         !is.null(input$first) ||
         !is.null(input$second)
       if (!is.null(option_error())) {
-        state$status <- conditionMessage(option_error())
+        state$status <- display_error(option_error())
       } else if (!is.null(error) && has_upload) {
-        state$status <- conditionMessage(error)
+        state$status <- display_error(error)
       } else if (inherits(media_tools, "error") && !has_upload) {
-        state$status <- conditionMessage(media_tools)
+        state$status <- display_error(media_tools)
       } else if (is.null(error) && has_upload) {
         state$status <- "Inputs validated. Ready to process."
       }
@@ -362,7 +389,7 @@ server <- function(input, output, session) {
   reset_clip_export <- function() {
     updateNumericInput(session, "n", value = 10)
     updateSelectizeInput(session, "emotion", selected = "happy")
-    updateTextInput(session, "optimised_subject", value = "both")
+    updateSelectInput(session, "optimised_subject", selected = "both")
     updateCheckboxInput(session, "only_synchronies", value = TRUE)
     updateNumericInput(session, "buffer_before", value = 5)
     updateNumericInput(session, "buffer_after", value = 3)
@@ -472,7 +499,7 @@ server <- function(input, output, session) {
       add = TRUE
     )
     if (!is.null(error)) {
-      state$status <- conditionMessage(error)
+      state$status <- display_error(error)
       if (!is.null(run_root)) {
         unlink(run_root, recursive = TRUE, force = TRUE)
         run_root <<- NULL
@@ -671,7 +698,7 @@ server <- function(input, output, session) {
           input$second,
           file.path(run_root, "inputs")
         )
-        options <- pipeline_options(input)
+        options <- pipeline_options(input, subjects())
         diagnostics <<- isTRUE(options$verbose)
         state$status <- "Processing video…"
         arguments <- c(

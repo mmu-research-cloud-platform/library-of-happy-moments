@@ -41,6 +41,11 @@ vignettes/*.pdf
 
 # pkgdown site
 docs/
+# README screenshots and demo
+!/docs/
+!/docs/images/
+!/docs/images/*.png
+!/docs/images/*.gif
 
 # translation temp files
 po/*~

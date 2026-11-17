@@ -1,6 +1,22 @@
 # library-of-happy-moments
 A shiny app proof of concept for building the library of happy moments. Acts as an interface for the facereaderconverter library.
 
+## Demo
+
+![Animated walkthrough of adding a camera view and opening multi-video settings](docs/images/multi-video-demo.gif)
+
+The walkthrough demonstrates the interface only; sample recordings are not included. To generate clips, upload one or more videos and two detailed FaceReader exports.
+
+### Screenshots
+
+![Clip workspace](docs/images/app-clips.png)
+
+![Multiple camera inputs](docs/images/app-multiple-videos.png)
+
+![Multi-video settings](docs/images/app-multi-video-options.png)
+
+![In-app instructions](docs/images/app-instructions.png)
+
 ## Recommended: clone and run from R
 
 Run locally on a trusted machine rather than exposing this unauthenticated app as a public server. Install Git and R 4.1 or newer, then clone the repository:
@@ -18,7 +34,7 @@ remotes::install_github("mmu-research-cloud-platform/facereaderconverter",
                       upgrade = "never")
 ```
 
-Install **both FFmpeg and FFprobe** with H.264/libx264 and AAC support in the platform-specific project `bin` directory, following [bin/README.md](bin/README.md). They are not stored in Git and are not installed by the R commands above. Then start the app from R:
+Install **both FFmpeg and FFprobe** from a trusted platform build linked by the [FFmpeg download page](https://ffmpeg.org/download.html); Windows x64 builds are available from [BtbN's FFmpeg Builds](https://github.com/BtbN/FFmpeg-Builds/releases). Choose a build with H.264/libx264 and AAC support, and place both executables in the platform-specific project `bin` directory, following [bin/README.md](bin/README.md). They are not stored in Git and are not installed by the R commands above. Then start the app from R:
 
 ```r
 shiny::runApp(".")
